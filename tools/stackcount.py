@@ -23,6 +23,7 @@ import re
 import signal
 import sys
 import traceback
+import zed
 
 debug = False
 
@@ -253,6 +254,8 @@ class Tool(object):
             help="output folded format")
         parser.add_argument("--debug", action="store_true",
             help="print BPF program before starting (for debugging purposes)")
+        parser.add_argument("-z", "--zed", action="store_true",
+            help="send output to Zed lake specified by ZED_LAKE environment")
         parser.add_argument("pattern",
             help="search expression for events")
         self.args = parser.parse_args()
@@ -287,6 +290,9 @@ class Tool(object):
         self.need_delimiter = self.args.delimited and not (
                     self.args.kernel_stacks_only or self.args.user_stacks_only)
 
+        if self.args.zed:
+            self.lake = ZedLake()
+
     def _print_kframe(self, addr):
         print("  ", end="")
         if self.args.verbose:
@@ -315,7 +321,7 @@ class Tool(object):
     def run(self):
         self.probe.load()
         self.probe.attach()
-        if not self.args.folded:
+        if not (self.args.folded or self.args.zed):
             print("Tracing %d functions for \"%s\"... Hit Ctrl-C to end." %
                   (self.probe.matched, self.args.pattern))
         b = self.probe.bpf
@@ -332,7 +338,7 @@ class Tool(object):
             if self.args.duration and seconds >= int(self.args.duration):
                 exiting = 1
 
-            if not self.args.folded:
+            if not (self.args.folded or self.args.zed):
                 print()
             if self.args.timestamp:
                 print("%-8s\n" % strftime("%H:%M:%S"), end="")
@@ -347,7 +353,17 @@ class Tool(object):
                 kernel_stack = [] if k.kernel_stack_id < 0 else \
                     stack_traces.walk(k.kernel_stack_id)
 
-                if self.args.folded:
+                if self.args.zed:
+                    ustack = ['"' + b.sym(addr, k.tgid).decode('utf-8', 'replace') + '"' for addr in user_stack]
+                    kstack = ['"' + b.ksym(addr).decode('utf-8', 'replace') + '"' for addr in kernel_stack]
+                    z = '{ts:%s,name:"%s",ustack:[%s]([string]),stack:[%s]([string]),count:%d}(=stack)' % (
+                        strftime('%Y-%m-%dT%H:%M:%SZ'),
+                        k.name.decode('utf-8', 'replace'),
+                        ','.join(ustack),
+                        ','.join(kstack),
+                        v.value)
+                    self.lake.write(z)
+                elif self.args.folded:
                     # print folded stack output
                     user_stack = list(user_stack)
                     kernel_stack = list(kernel_stack)
@@ -370,10 +386,30 @@ class Tool(object):
                     print("    %d\n" % v.value)
             counts.clear()
 
+            if self.args.zed:
+                self.lake.flush()
+
             if exiting:
                 if not self.args.folded:
                     print("Detaching...")
                 exit()
+
+class ZedLake(object):
+    def __init__(self):
+        # Connect to Zed lake via URL specified by ZED_LAKE environment.
+        self.lake = zed.Client()
+        self.buffer=[]
+    def write(self,z):
+            self.buffer.append(z)
+            if len(self.buffer) >= 500:
+                self.flush()
+    def flush(self):
+        # Note that this blocks and waits for the commit to succeed
+        # on the remote lake before returning.
+        if len(self.buffer) > 0:
+            self.lake.load('bpf', ''.join(self.buffer))
+            print("posted %d records to Zed lake" % len(self.buffer))
+            self.buffer = []
 
 if __name__ == "__main__":
     try:

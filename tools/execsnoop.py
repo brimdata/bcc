@@ -28,7 +28,7 @@ import time
 import pwd
 from collections import defaultdict
 from time import strftime
-
+import zed
 
 def parse_uid(user):
     try:
@@ -92,6 +92,8 @@ parser.add_argument("--max-args", default="20",
     help="maximum number of arguments parsed and displayed, defaults to 20")
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
+parser.add_argument("-z", "--zed", action="store_true",
+    help="send output to Zed lake specified by ZED_LAKE environment")
 args = parser.parse_args()
 
 # define BPF program
@@ -230,13 +232,14 @@ b.attach_kprobe(event=execve_fnname, fn_name="syscall__execve")
 b.attach_kretprobe(event=execve_fnname, fn_name="do_ret_sys_execve")
 
 # header
-if args.time:
-    print("%-9s" % ("TIME"), end="")
-if args.timestamp:
-    print("%-8s" % ("TIME(s)"), end="")
-if args.print_uid:
-    print("%-6s" % ("UID"), end="")
-print("%-16s %-6s %-6s %3s %s" % ("PCOMM", "PID", "PPID", "RET", "ARGS"))
+if not args.zed:
+    if args.time:
+        print("%-9s" % ("TIME"), end="")
+    if args.timestamp:
+        print("%-8s" % ("TIME(s)"), end="")
+    if args.print_uid:
+        print("%-6s" % ("UID"), end="")
+    print("%-16s %-6s %-6s %3s %s" % ("PCOMM", "PID", "PPID", "RET", "ARGS"))
 
 class EventType(object):
     EVENT_ARG = 0
@@ -281,27 +284,63 @@ def print_event(cpu, data, size):
             ]
 
         if not skip:
-            if args.time:
-                printb(b"%-9s" % strftime("%H:%M:%S").encode('ascii'), nl="")
-            if args.timestamp:
-                printb(b"%-8.3f" % (time.time() - start_ts), nl="")
-            if args.print_uid:
-                printb(b"%-6d" % event.uid, nl="")
             ppid = event.ppid if event.ppid > 0 else get_ppid(event.pid)
-            ppid = b"%d" % ppid if ppid > 0 else b"?"
-            argv_text = b' '.join(argv[event.pid]).replace(b'\n', b'\\n')
-            printb(b"%-16s %-6d %-6s %3d %s" % (event.comm, event.pid,
-                   ppid, event.retval, argv_text))
+
+            if args.zed:
+                ppid = "%d" % ppid if ppid > 0 else "null(int64)"
+                elems = ['"' + arg.decode('utf-8', 'replace') + '"' for arg in argv[event.pid]]
+                z = '{ts:%s,pcomm:"%s",pid:%s,ppid:%s,ret:%s,args:[%s]([string])}(=exec)' % (
+                    strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    event.comm.decode(), event.pid,
+                    ppid,
+                    event.retval,
+                    ','.join(elems)
+                )
+                zed_lake.write(z)
+            else:
+                ppid = b"%d" % ppid if ppid > 0 else b"?"
+                if args.time:
+                    printb(b"%-9s" % strftime("%H:%M:%S").encode('ascii'), nl="")
+                if args.timestamp:
+                    printb(b"%-8.3f" % (time.time() - start_ts), nl="")
+                if args.print_uid:
+                    printb(b"%-6d" % event.uid, nl="")
+                argv_text = b' '.join(argv[event.pid]).replace(b'\n', b'\\n')
+                printb(b"%-16s %-6d %-6s %3d %s" % (
+                    event.comm, event.pid,
+                    ppid, event.retval, argv_text))
         try:
             del(argv[event.pid])
         except Exception:
             pass
 
+class ZedLake(object):
+    def __init__(self):
+        # Connect to Zed lake via URL specified by ZED_LAKE environment.
+        self.lake = zed.Client()
+        self.buffer=[]
+    def write(self,z):
+            self.buffer.append(z)
+            if len(self.buffer) >= 500:
+                self.flush()
+    def flush(self):
+        # Note that this blocks and waits for the commit to succeed
+        # on the remote lake before returning.
+        if len(self.buffer) > 0:
+            self.lake.load('bpf', ''.join(self.buffer))
+            print("posted %d records to Zed lake" % len(self.buffer))
+            self.buffer = []
+
+if args.zed:
+    zed_lake = ZedLake()
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event)
 while 1:
     try:
-        b.perf_buffer_poll()
+        b.perf_buffer_poll(timeout=1000)
+        # flush any lake output
+        if args.zed:
+            zed_lake.flush()
     except KeyboardInterrupt:
         exit()
