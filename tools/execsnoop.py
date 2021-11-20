@@ -328,11 +328,6 @@ class ZedLake(object):
             self.lake.load(''.join(self.buffer))
             self.buffer = []
 
-#XXX poll... replace this with perf_buffer_poll(timeout=1s)
-#        i, o, e = select.select([sys.stdin], [], [], 1)
-#        if (i):
-#
-
 if args.zed:
     zed_lake = ZedLake()
 
