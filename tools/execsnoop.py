@@ -297,6 +297,25 @@ def print_event(cpu, data, size):
         except Exception:
             pass
 
+class LakeWriter(object):
+    self.lines=[]
+    # Connect to Zed lake via URL specified by ZED_LAKE environment.
+    self.lake = zed.Client()
+    def write(z):
+            self.lines.append(z)
+            if len(self.lines) >= 500:
+                self.flush()
+    def flush():
+        # Note that this blocks and waits for the commit to succeed
+        # on the remote lake before returning.
+        self.lake.load(''.join(lines))
+        self.lines = []
+
+#XXX poll... replace this with perf_buffer_poll(timeout=1s)
+#        i, o, e = select.select([sys.stdin], [], [], 1)
+#        if (i):
+#
+
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event)
