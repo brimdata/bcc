@@ -92,6 +92,8 @@ parser.add_argument("--max-args", default="20",
     help="maximum number of arguments parsed and displayed, defaults to 20")
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
+parser.add_argument("-z", "--zed",, action="store_true",
+    help="send output to Zed lake specified by ZED_LAKE environment")
 args = parser.parse_args()
 
 # define BPF program
@@ -280,42 +282,56 @@ def print_event(cpu, data, size):
                 for arg in argv[event.pid]
             ]
 
+        #XXX fix strftime()
         if not skip:
-            if args.time:
-                printb(b"%-9s" % strftime("%H:%M:%S").encode('ascii'), nl="")
-            if args.timestamp:
-                printb(b"%-8.3f" % (time.time() - start_ts), nl="")
-            if args.print_uid:
-                printb(b"%-6d" % event.uid, nl="")
             ppid = event.ppid if event.ppid > 0 else get_ppid(event.pid)
             ppid = b"%d" % ppid if ppid > 0 else b"?"
-            argv_text = b' '.join(argv[event.pid]).replace(b'\n', b'\\n')
-            printb(b"%-16s %-6d %-6s %3d %s" % (event.comm, event.pid,
-                   ppid, event.retval, argv_text))
+
+            if not zed_lake is None:
+                # XXX put args into array instead of a string
+                z = '{ts:%s,pcomm:"%s",pid:%s,ppid:%s,ret:%s,args:"%s"}(=exec)' % (
+                    datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    event.comm.decode(), event.pid,
+                    ppid,
+                    b' '.join(argv[event.pid]).decode())
+                zed_lake.write(z)
+            else:
+                if args.time:
+                    printb(b"%-9s" % strftime("%H:%M:%S").encode('ascii'), nl="")
+                if args.timestamp:
+                    printb(b"%-8.3f" % (time.time() - start_ts), nl="")
+                if args.print_uid:
+                    printb(b"%-6d" % event.uid, nl="")
+                argv_text = b' '.join(argv[event.pid]).replace(b'\n', b'\\n')
+                printb(b"%-16s %-6d %-6s %3d %s" % (
+                    event.comm, event.pid,
+                    ppid, event.retval, argv_text))
         try:
             del(argv[event.pid])
         except Exception:
             pass
 
-class LakeWriter(object):
-    self.lines=[]
+class ZedLake(object):
     # Connect to Zed lake via URL specified by ZED_LAKE environment.
     self.lake = zed.Client()
+    self.buffer=[]
     def write(z):
-            self.lines.append(z)
-            if len(self.lines) >= 500:
+            self.buffer.append(z)
+            if len(self.buffer) >= 500:
                 self.flush()
     def flush():
         # Note that this blocks and waits for the commit to succeed
         # on the remote lake before returning.
-        self.lake.load(''.join(lines))
-        self.lines = []
+        self.lake.load(''.join(buffer))
+        self.buffer = []
 
 #XXX poll... replace this with perf_buffer_poll(timeout=1s)
 #        i, o, e = select.select([sys.stdin], [], [], 1)
 #        if (i):
 #
 
+if args.zed:
+    zed_lake = ZedLake()
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event)
