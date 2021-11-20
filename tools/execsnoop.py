@@ -28,7 +28,7 @@ import time
 import pwd
 from collections import defaultdict
 from time import strftime
-
+import zed
 
 def parse_uid(user):
     try:
@@ -92,7 +92,7 @@ parser.add_argument("--max-args", default="20",
     help="maximum number of arguments parsed and displayed, defaults to 20")
 parser.add_argument("--ebpf", action="store_true",
     help=argparse.SUPPRESS)
-parser.add_argument("-z", "--zed",, action="store_true",
+parser.add_argument("-z", "--zed", action="store_true",
     help="send output to Zed lake specified by ZED_LAKE environment")
 args = parser.parse_args()
 
@@ -232,13 +232,14 @@ b.attach_kprobe(event=execve_fnname, fn_name="syscall__execve")
 b.attach_kretprobe(event=execve_fnname, fn_name="do_ret_sys_execve")
 
 # header
-if args.time:
-    print("%-9s" % ("TIME"), end="")
-if args.timestamp:
-    print("%-8s" % ("TIME(s)"), end="")
-if args.print_uid:
-    print("%-6s" % ("UID"), end="")
-print("%-16s %-6s %-6s %3s %s" % ("PCOMM", "PID", "PPID", "RET", "ARGS"))
+if not args.zed:
+    if args.time:
+        print("%-9s" % ("TIME"), end="")
+    if args.timestamp:
+        print("%-8s" % ("TIME(s)"), end="")
+    if args.print_uid:
+        print("%-6s" % ("UID"), end="")
+    print("%-16s %-6s %-6s %3s %s" % ("PCOMM", "PID", "PPID", "RET", "ARGS"))
 
 class EventType(object):
     EVENT_ARG = 0
@@ -287,7 +288,7 @@ def print_event(cpu, data, size):
             ppid = event.ppid if event.ppid > 0 else get_ppid(event.pid)
             ppid = b"%d" % ppid if ppid > 0 else b"?"
 
-            if not zed_lake is None:
+            if args.zed:
                 # XXX put args into array instead of a string
                 z = '{ts:%s,pcomm:"%s",pid:%s,ppid:%s,ret:%s,args:"%s"}(=exec)' % (
                     datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
@@ -312,18 +313,20 @@ def print_event(cpu, data, size):
             pass
 
 class ZedLake(object):
-    # Connect to Zed lake via URL specified by ZED_LAKE environment.
-    self.lake = zed.Client()
-    self.buffer=[]
-    def write(z):
+    def __init__(self):
+        # Connect to Zed lake via URL specified by ZED_LAKE environment.
+        self.lake = zed.Client()
+        self.buffer=[]
+    def write(self,z):
             self.buffer.append(z)
             if len(self.buffer) >= 500:
                 self.flush()
-    def flush():
+    def flush(self):
         # Note that this blocks and waits for the commit to succeed
         # on the remote lake before returning.
-        self.lake.load(''.join(buffer))
-        self.buffer = []
+        if len(self.buffer) > 0:
+            self.lake.load(''.join(self.buffer))
+            self.buffer = []
 
 #XXX poll... replace this with perf_buffer_poll(timeout=1s)
 #        i, o, e = select.select([sys.stdin], [], [], 1)
@@ -337,6 +340,10 @@ if args.zed:
 b["events"].open_perf_buffer(print_event)
 while 1:
     try:
-        b.perf_buffer_poll()
+        b.perf_buffer_poll(timeout=1000)
+        # flush any lake output
+        if args.zed:
+            print("flush...")
+            zed_lake.flush()
     except KeyboardInterrupt:
         exit()
