@@ -29,6 +29,7 @@ import pwd
 from collections import defaultdict
 from time import strftime
 import zed
+import datetime
 
 def parse_uid(user):
     try:
@@ -286,17 +287,19 @@ def print_event(cpu, data, size):
         #XXX fix strftime()
         if not skip:
             ppid = event.ppid if event.ppid > 0 else get_ppid(event.pid)
-            ppid = b"%d" % ppid if ppid > 0 else b"?"
 
             if args.zed:
+                ppid = "%d" % ppid if ppid > 0 else "null(int64)"
                 # XXX put args into array instead of a string
                 z = '{ts:%s,pcomm:"%s",pid:%s,ppid:%s,ret:%s,args:"%s"}(=exec)' % (
                     datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
                     event.comm.decode(), event.pid,
                     ppid,
+                    event.retval,
                     b' '.join(argv[event.pid]).decode())
                 zed_lake.write(z)
             else:
+                ppid = b"%d" % ppid if ppid > 0 else b"?"
                 if args.time:
                     printb(b"%-9s" % strftime("%H:%M:%S").encode('ascii'), nl="")
                 if args.timestamp:
@@ -325,7 +328,7 @@ class ZedLake(object):
         # Note that this blocks and waits for the commit to succeed
         # on the remote lake before returning.
         if len(self.buffer) > 0:
-            self.lake.load(''.join(self.buffer))
+            self.lake.load('bpf', ''.join(self.buffer))
             self.buffer = []
 
 if args.zed:
@@ -338,7 +341,6 @@ while 1:
         b.perf_buffer_poll(timeout=1000)
         # flush any lake output
         if args.zed:
-            print("flush...")
             zed_lake.flush()
     except KeyboardInterrupt:
         exit()
