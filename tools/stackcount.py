@@ -400,11 +400,12 @@ class Tool(object):
                     print("    %d\n" % v.value)
             counts.clear()
 
+            if self.args.zed:
+                self.lake.flush()
+
             if exiting:
                 if not self.args.folded:
                     print("Detaching...")
-                if self.zed:
-                    self.lake.flush()
                 exit()
 
 class ZedLake(object):
@@ -421,6 +422,7 @@ class ZedLake(object):
         # on the remote lake before returning.
         if len(self.buffer) > 0:
             self.lake.load('bpf', ''.join(self.buffer))
+            print("posted %d records to zed" % len(self.buffer))
             self.buffer = []
 
 if __name__ == "__main__":
