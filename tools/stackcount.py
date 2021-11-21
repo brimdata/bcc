@@ -290,6 +290,9 @@ class Tool(object):
         self.need_delimiter = self.args.delimited and not (
                     self.args.kernel_stacks_only or self.args.user_stacks_only)
 
+        if self.args.zed:
+            self.lake = ZedLake()
+
     def _print_kframe(self, addr):
         print("  ", end="")
         if self.args.verbose:
@@ -373,7 +376,7 @@ class Tool(object):
                     z = '{ts:%s,name:"%s",ustack:[%s],stack:[%s],count:%d}(=stack)' % (
                         strftime('%Y-%m-%dT%H:%M:%SZ'),
                         k.name.decode(), us, ks, v.value)
-                    zed_lake.write(z)
+                    self.lake.write(z)
                 elif self.args.folded:
                     # print folded stack output
                     user_stack = list(user_stack)
@@ -400,6 +403,8 @@ class Tool(object):
             if exiting:
                 if not self.args.folded:
                     print("Detaching...")
+                if self.zed:
+                    self.lake.flush()
                 exit()
 
 class ZedLake(object):
@@ -419,8 +424,6 @@ class ZedLake(object):
             self.buffer = []
 
 if __name__ == "__main__":
-    if args.zed:
-        zed_lake = ZedLake()
     try:
         Tool().run()
     except Exception:
