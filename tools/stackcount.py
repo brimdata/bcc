@@ -354,28 +354,14 @@ class Tool(object):
                     stack_traces.walk(k.kernel_stack_id)
 
                 if self.args.zed:
-                    # print folded stack output
-                    user_stack = list(user_stack)
-                    kernel_stack = list(kernel_stack)
-                    ### clean this stuff up
-                    us = ''
-                    sep = ''
-                    for addr in user_stack:
-                        us += '%s"%s"' % (sep,b.sym(addr,k.tgid))
-                        sep = ','
-                    ks = ''
-                    sep = ''
-                    for addr in kernel_stack:
-                        ks += '%s"%s"' % (sep,b.ksym(addr))
-                        sep = ','
-                    line = [k.name.decode()] + \
-                        [b.sym(addr, k.tgid) for addr in
-                        reversed(user_stack)] + \
-                        (self.need_delimiter and ["-"] or []) + \
-                        [b.ksym(addr) for addr in reversed(kernel_stack)]
-                    z = '{ts:%s,name:"%s",ustack:[%s],stack:[%s],count:%d}(=stack)' % (
+                    ustack = ['"' + b.sym(addr, k.tgid).decode('utf-8', 'replace') + '"' for addr in user_stack]
+                    kstack = ['"' + b.ksym(addr).decode('utf-8', 'replace') + '"' for addr in kernel_stack]
+                    z = '{ts:%s,name:"%s",ustack:[%s]([string]),stack:[%s],count:%d}(=stack)' % (
                         strftime('%Y-%m-%dT%H:%M:%SZ'),
-                        k.name.decode(), us, ks, v.value)
+                        k.name.decode(),
+                        ','.join(ustack),
+                        ','.join(kstack),
+                        v.value)
                     self.lake.write(z)
                 elif self.args.folded:
                     # print folded stack output
@@ -422,7 +408,7 @@ class ZedLake(object):
         # on the remote lake before returning.
         if len(self.buffer) > 0:
             self.lake.load('bpf', ''.join(self.buffer))
-            print("posted %d records to zed" % len(self.buffer))
+            print("posted %d records to Zed lake" % len(self.buffer))
             self.buffer = []
 
 if __name__ == "__main__":

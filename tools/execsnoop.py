@@ -327,6 +327,7 @@ class ZedLake(object):
         # on the remote lake before returning.
         if len(self.buffer) > 0:
             self.lake.load('bpf', ''.join(self.buffer))
+            print("posted %d records to Zed lake" % len(self.buffer))
             self.buffer = []
 
 if args.zed:
