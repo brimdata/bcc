@@ -29,7 +29,6 @@ import pwd
 from collections import defaultdict
 from time import strftime
 import zed
-import datetime
 
 def parse_uid(user):
     try:
@@ -284,7 +283,6 @@ def print_event(cpu, data, size):
                 for arg in argv[event.pid]
             ]
 
-        #XXX fix strftime()
         if not skip:
             ppid = event.ppid if event.ppid > 0 else get_ppid(event.pid)
 
@@ -292,7 +290,7 @@ def print_event(cpu, data, size):
                 ppid = "%d" % ppid if ppid > 0 else "null(int64)"
                 # XXX put args into array instead of a string
                 z = '{ts:%s,pcomm:"%s",pid:%s,ppid:%s,ret:%s,args:"%s"}(=exec)' % (
-                    datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    strftime('%Y-%m-%dT%H:%M:%SZ'),
                     event.comm.decode(), event.pid,
                     ppid,
                     event.retval,
