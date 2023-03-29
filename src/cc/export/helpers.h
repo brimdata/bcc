@@ -914,6 +914,12 @@ static long (*bpf_trace_vprintk)(const char *fmt, __u32 fmt_size, const void *da
   (void *)BPF_FUNC_trace_vprintk;
 static struct unix_sock *(*bpf_skc_to_unix_sock)(void *sk) =
   (void *)BPF_FUNC_skc_to_unix_sock;
+static long (*bpf_kallsyms_lookup_name)(const char *name, int name_sz, int flags,
+				__u64 *res) =
+  (void *)BPF_FUNC_kallsyms_lookup_name;
+static long (*bpf_find_vma)(struct task_struct *task, __u64 addr, void *callback_fn,
+			    void *callback_ctx, __u64 flags) =
+  (void *)BPF_FUNC_find_vma;
 
 /* llvm builtin functions that eBPF C program may use to
  * emit BPF_LD_ABS and BPF_LD_IND instructions
@@ -1348,6 +1354,12 @@ static int ____##name(unsigned long long *ctx, ##args)
             unsigned short __offset = args->data_loc_##field & 0xFFFF;      \
             unsigned short __length = args->data_loc_##field >> 16;         \
             bpf_probe_read((void *)dst, __length, (char *)args + __offset); \
+        } while (0);
+
+#define TP_DATA_LOC_READ_STR(dst, field, length)                                \
+        do {                                                                    \
+            unsigned short __offset = args->data_loc_##field & 0xFFFF;          \
+            bpf_probe_read_str((void *)dst, length, (char *)args + __offset);   \
         } while (0);
 
 #endif
